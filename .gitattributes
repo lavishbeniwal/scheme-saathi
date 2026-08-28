@@ -1,0 +1,4 @@
+# Normalize line endings: store text files with LF in the repository and
+# check them out with the platform's native endings. Keeps diffs clean when
+# the project is worked on across Windows and Linux/macOS.
+* text=auto

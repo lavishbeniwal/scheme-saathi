@@ -57,6 +57,87 @@ Known rough edge: the `Sources:` line in `scripts/ask.py` output lists whatever 
 
 ---
 
+## Environment notes — the transformers version pin
+
+`requirements.txt` pins `transformers==4.51.3` and `sentence-transformers==5.7.0`
+together. This is deliberate and load-bearing: do not upgrade either one
+independently.
+
+### The conflict
+
+IndicTrans2 (planned for Hindi translation in a later week) is loaded through
+HuggingFace `transformers` with `trust_remote_code=True`, and its remote code —
+along with the `IndicTransToolkit` package that supplies the tokenizer and
+pre/post-processing — targets the `transformers` 4.x API. On `transformers`
+5.16.1 it fails in three separate places: `IndicTransToolkit` imports
+`PreTrainedTokenizerBase` from a module 5.x moved it out of; the model's
+`configuration_indictrans.py` imports `transformers.onnx`, removed entirely in
+5.x; and `IndicTransTokenizer.__init__` assigns special tokens in an order 5.x's
+base class rejects. `transformers` 4.57.6 also fails, in the decoder's KV-cache
+handling. `transformers==4.51.3` is the version that actually works.
+
+The complication is that retrieval already depends on `sentence-transformers`,
+and version 6.0.0 declares `transformers<6.0.0,>=5.0.0` — directly incompatible
+with the 4.51.3 that IndicTrans2 needs.
+
+### Options considered
+
+1. **Two-process split** — run translation in its own virtualenv behind a small
+   local HTTP service, keeping retrieval on `transformers` 5.x. Correct but adds
+   a process boundary, a serialization layer, and a second environment to keep
+   installed and running for what is otherwise a single-user local app.
+2. **Override the declared conflict** — force `transformers==4.51.3` alongside
+   `sentence-transformers==6.0.0` and rely on it working in practice. It does
+   work for the code paths the Week 1 checks exercise, but leaves
+   `sentence-transformers` running outside its declared support range, with a pip
+   conflict warning on every install and no guarantee about untested paths.
+3. **Find a `sentence-transformers` that supports both** (chosen). PyPI metadata
+   shows the requirement changed only at 6.0.0: releases 5.2.0 through **5.7.0**
+   declare `transformers<6.0.0,>=4.41.0`, which admits 4.51.3. So
+   `sentence-transformers==5.7.0` — the newest release before the bump — supports
+   the exact `transformers` IndicTrans2 needs.
+
+Option 3 won because it needs no process boundary and no override: every package
+runs inside its own declared, supported range. `pip check` reports "No broken
+requirements found", and installs produce no conflict warnings.
+
+### Validation evidence
+
+Checked in a throwaway clone of the venv first, then re-confirmed on the real one
+after applying the change:
+
+- **Embeddings are byte-identical across all three configurations.** Encoding a
+  fixed set of strings with `all-MiniLM-L6-v2` produces SHA-256
+  `a9f762292403a1e824885c870cc47cc68c3f3c28dbb8cdbf315f33cd3648f99b` under
+  `sentence-transformers` 6.0.0 + `transformers` 5.16.1, under 6.0.0 + 4.51.3, and
+  under 5.7.0 + 4.51.3. Retrieval behaviour is therefore unchanged, and the
+  existing `chroma_db/` index stays valid — no reindexing needed after the
+  downgrade.
+- **All four Week 1 Definition-of-Done checks pass** on the pinned combination:
+  `build_index` produces the same 72 chunks from 18 schemes, the PM-KISAN,
+  Ayushman Bharat and PMAY questions answer correctly, and the out-of-corpus
+  question still refuses gracefully instead of fabricating. The retrieved
+  `Sources:` lists are identical to the pre-change baseline for all four
+  questions.
+- **IndicTrans2 runs in the same environment**, both directions, CPU-only on
+  native Windows — roughly 0.7-1.9s per sentence and about 1.4 GB peak RSS with
+  both distilled 200M checkpoints loaded.
+
+### Practical notes for later weeks
+
+- `sentencepiece` is pinned explicitly because `IndicTransToolkit` does not
+  declare it, but the IndicTrans2 tokenizer imports it directly — an unpinned
+  install would fail only at translation time.
+- The AI4Bharat checkpoints are **gated** on HuggingFace: a logged-in account
+  (`hf auth login`) that has accepted the model terms is required before they can
+  be downloaded.
+- Native Windows works; the WSL2 setup that AI4Bharat's docs imply is not needed.
+- Anything printing Hindi needs `sys.stdout.reconfigure(encoding="utf-8")` —
+  Windows consoles default to cp1252 and raise `UnicodeEncodeError` on Devanagari.
+  `scripts/ask.py` already does this.
+
+---
+
 ## Later weeks (not yet planned in detail)
 
 - Hindi translation at the edges (IndicTrans2): Hindi question -> English -> ... -> English answer -> Hindi.

@@ -1,4 +1,16 @@
-sentence-transformers
-chromadb
-groq
-python-dotenv
+# Pinned together: sentence-transformers>=6.0.0 requires transformers>=5.0.0,
+# which breaks IndicTrans2 (its remote code and IndicTransToolkit target
+# transformers 4.x). sentence-transformers 5.7.0 is the newest release
+# compatible with both -- it declares transformers<6.0.0,>=4.41.0.
+transformers==4.51.3
+sentence-transformers==5.7.0
+
+# Hindi <-> English translation (IndicTrans2). sentencepiece is pinned
+# explicitly because IndicTransToolkit does not declare it, but the
+# IndicTrans2 tokenizer imports it directly.
+IndicTransToolkit==1.1.1
+sentencepiece==0.2.2
+
+chromadb==1.5.9
+groq==1.7.0
+python-dotenv==1.2.3
